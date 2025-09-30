@@ -2,7 +2,7 @@
 import { initializeApp } from "firebase/app";
 import { getAnalytics } from "firebase/analytics";
 import { getAuth, createUserWithEmailAndPassword, updateProfile, signInWithEmailAndPassword, type Auth } from "firebase/auth";
-import { getFirestore, collection, addDoc, getDocs, doc, updateDoc, onSnapshot, deleteDoc } from "firebase/firestore";
+import { getFirestore, collection, addDoc, getDocs, doc, updateDoc, onSnapshot, deleteDoc, query, where } from "firebase/firestore";
 
 // Firebase configuration
 const firebaseConfig = {
@@ -52,5 +52,7 @@ export {
   doc,
   updateDoc,
   onSnapshot,
-  deleteDoc
+  deleteDoc,
+  query,
+  where
 };

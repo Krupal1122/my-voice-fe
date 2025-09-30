@@ -6,7 +6,7 @@ import { Input } from './ui/input';
 import { Card } from './ui/card';
 import { Alert } from './ui/alert';
 import { auth, createUserWithEmailAndPassword, updateProfile, signInWithEmailAndPassword, db } from '../auth/firebase';
-import { collection, addDoc } from '../auth/firebase';
+import { collection, addDoc, getDocs, query, where } from '../auth/firebase';
 
 interface LoginModalProps {
   onClose: () => void;
@@ -32,7 +32,6 @@ export function LoginModal({ onClose }: LoginModalProps) {
   const [resetEmail, setResetEmail] = useState('');
   const [newPassword, setNewPassword] = useState('');
   const [confirmNewPassword, setConfirmNewPassword] = useState('');
-  const [otpSent, setOtpSent] = useState(false);
   const [otpExpiry, setOtpExpiry] = useState<Date | null>(null);
   const [showNewPassword, setShowNewPassword] = useState(false);
   const [showConfirmNewPassword, setShowConfirmNewPassword] = useState(false);
@@ -147,6 +146,19 @@ export function LoginModal({ onClose }: LoginModalProps) {
     return Math.floor(100000 + Math.random() * 900000).toString();
   };
 
+  // Check if email exists in Firebase users collection
+  const checkEmailExists = async (email: string): Promise<boolean> => {
+    try {
+      const usersRef = collection(db, "users");
+      const q = query(usersRef, where("email", "==", email));
+      const querySnapshot = await getDocs(q);
+      return !querySnapshot.empty;
+    } catch (error) {
+      console.error('Error checking email:', error);
+      return false;
+    }
+  };
+
   // Send OTP to email (simulated - in production, use your email service)
   const sendOTPEmail = async (email: string, otp: string): Promise<boolean> => {
     try {
@@ -191,6 +203,15 @@ export function LoginModal({ onClose }: LoginModalProps) {
     }
 
     try {
+      // Check if email exists in Firebase
+      const emailExists = await checkEmailExists(email);
+      
+      if (!emailExists) {
+        setError('Aucun compte trouvé avec cette adresse email.');
+        setLoading(false);
+        return;
+      }
+
       // Generate OTP
       const otp = generateOTP();
       setGeneratedOtp(otp);
@@ -205,7 +226,6 @@ export function LoginModal({ onClose }: LoginModalProps) {
       const emailSent = await sendOTPEmail(email, otp);
       
       if (emailSent) {
-        setOtpSent(true);
         setLoading(false);
         setCurrentView('otp-verify');
         setError('');
@@ -287,7 +307,6 @@ export function LoginModal({ onClose }: LoginModalProps) {
       setResetEmail('');
       setNewPassword('');
       setConfirmNewPassword('');
-      setOtpSent(false);
       setOtpExpiry(null);
       setCurrentView('login');
       setError('');
