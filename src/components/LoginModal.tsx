@@ -5,7 +5,8 @@ import { Button } from './ui/button';
 import { Input } from './ui/input';
 import { Card } from './ui/card';
 import { Alert } from './ui/alert';
-import { auth, createUserWithEmailAndPassword, updateProfile, signInWithEmailAndPassword, db, functions, httpsCallable, doc, setDoc } from '../auth/firebase';
+import { auth, createUserWithEmailAndPassword, updateProfile, signInWithEmailAndPassword, db, functions, httpsCallable } from '../auth/firebase';
+import { collection, addDoc, setDoc, doc } from '../auth/firebase';
 
 interface LoginModalProps {
   onClose: () => void;
@@ -61,26 +62,32 @@ export function LoginModal({ onClose }: LoginModalProps) {
     } catch (error: any) {
       setLoading(false);
       // Handle Firebase-specific errors
-      switch (error.code) {
-        case 'auth/user-not-found':
-          setError('Aucun compte trouvé avec cette adresse email.');
-          break;
-        case 'auth/wrong-password':
-          setError('Mot de passe incorrect.');
-          break;
-        case 'auth/invalid-email':
-          setError('Adresse email invalide.');
-          break;
-        case 'auth/user-disabled':
-          setError('Ce compte a été désactivé.');
-          break;
-        case 'auth/too-many-requests':
-          setError('Trop de tentatives. Veuillez réessayer plus tard.');
-          break;
-        default:
-          // Surface the underlying error message when available to help debugging
-          console.error('Login error:', error);
-          setError(error?.message || 'Une erreur est survenue lors de la connexion. Veuillez réessayer.');
+      if (typeof error === 'object' && error !== null && 'code' in error) {
+        // @ts-ignore
+        switch (error.code) {
+          case 'auth/user-not-found':
+            setError('Aucun compte trouvé avec cette adresse email.');
+            break;
+          case 'auth/wrong-password':
+            setError('Mot de passe incorrect.');
+            break;
+          case 'auth/invalid-email':
+            setError('Adresse email invalide.');
+            break;
+          case 'auth/user-disabled':
+            setError('Ce compte a été désactivé.');
+            break;
+          case 'auth/too-many-requests':
+            setError('Trop de tentatives. Veuillez réessayer plus tard.');
+            break;
+          default:
+            // Surface the underlying error message when available to help debugging
+            console.error('Login error:', error);
+            // @ts-ignore
+            setError(error?.message || 'Une erreur est survenue lors de la connexion. Veuillez réessayer.');
+        }
+      } else {
+        setError('Une erreur est survenue lors de la connexion. Veuillez réessayer.');
       }
     }
   };
@@ -209,18 +216,25 @@ export function LoginModal({ onClose }: LoginModalProps) {
       console.error('Error details:', error.message, error.code, error.details);
   
       // Handle Firebase Function errors
-      switch (error.code) {
-        case 'functions/failed-precondition':
-          setError('Aucun compte trouvé avec cette adresse email.');
-          break;
-        case 'functions/invalid-argument':
-          setError('Adresse email invalide.');
-          break;
-        case 'functions/internal':
-          setError(`Erreur interne du serveur: ${error.message || 'Veuillez réessayer plus tard.'}`);
-          break;
-        default:
-          setError(`Une erreur est survenue lors de l'envoi de l'OTP: ${error.message || 'Veuillez réessayer.'}`);
+      if (typeof error === 'object' && error !== null && 'code' in error) {
+        // @ts-ignore
+        switch (error.code) {
+          case 'functions/failed-precondition':
+            setError('Aucun compte trouvé avec cette adresse email.');
+            break;
+          case 'functions/invalid-argument':
+            setError('Adresse email invalide.');
+            break;
+          case 'functions/internal':
+            // @ts-ignore
+            setError(`Erreur interne du serveur: ${error.message || 'Veuillez réessayer plus tard.'}`);
+            break;
+          default:
+            // @ts-ignore
+            setError(`Une erreur est survenue lors de l'envoi de l'OTP: ${error.message || 'Veuillez réessayer.'}`);
+        }
+      } else {
+        setError('Une erreur est survenue lors de l\'envoi de l\'OTP. Veuillez réessayer.');
       }
     }
   };
@@ -293,8 +307,7 @@ export function LoginModal({ onClose }: LoginModalProps) {
           setError('Code de vérification incorrect. Veuillez réessayer.');
           break;
         default:
-          console.error('OTP verification default error:', error);
-          setError(error?.message || 'Une erreur est survenue lors de la vérification. Veuillez réessayer.');
+          setError('Une erreur est survenue lors de la vérification. Veuillez réessayer.');
       }
     }
   };
@@ -312,13 +325,14 @@ export function LoginModal({ onClose }: LoginModalProps) {
       const result = await sendOTPFunction({ email: resetEmail });
       
       if ((result.data as { success: boolean }).success) {
-        setLoading(false);
+        setLoading(false);  
         alert('📧 Nouveau code de vérification envoyé!');
       } else {
         setError('Erreur lors de l\'envoi. Veuillez réessayer.');
         setLoading(false);
       }
-    } catch (error: any) {
+    } catch (error:any) {
+      setError('Erreur lors de l\'envoi. Veuillez réessayer.');
       setLoading(false);
       console.error('Resend OTP error:', error);
       
@@ -334,8 +348,7 @@ export function LoginModal({ onClose }: LoginModalProps) {
           setError('Erreur interne du serveur. Veuillez réessayer plus tard.');
           break;
         default:
-          console.error('Resend OTP default error:', error);
-          setError(error?.message || 'Erreur lors de l\'envoi. Veuillez réessayer.');
+          setError('Erreur lors de l\'envoi. Veuillez réessayer.');
       }
     }
   };
