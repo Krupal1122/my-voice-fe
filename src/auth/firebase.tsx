@@ -3,6 +3,7 @@ import { initializeApp } from "firebase/app";
 import { getAnalytics } from "firebase/analytics";
 import { getAuth, createUserWithEmailAndPassword, updateProfile, signInWithEmailAndPassword, type Auth } from "firebase/auth";
 import { getFirestore, collection, addDoc, getDocs, doc, updateDoc, onSnapshot, deleteDoc, query, where } from "firebase/firestore";
+import { getFunctions, httpsCallable, type Functions } from "firebase/functions";
 
 // Firebase configuration
 const firebaseConfig = {
@@ -21,6 +22,7 @@ const app = initializeApp(firebaseConfig);
 // Initialize Firebase services
 let auth: Auth;
 let db: any;
+let functions: Functions;
 
 try {
   // Initialize analytics only if available
@@ -29,20 +31,24 @@ try {
   }
   auth = getAuth(app);
   db = getFirestore(app);
+  functions = getFunctions(app, 'us-central1');
   console.log('Firebase initialized successfully');
   console.log('Auth instance:', auth);
   console.log('Firestore instance:', db);
+  console.log('Functions instance:', functions);
 } catch (error) {
   console.error('Firebase initialization error:', error);
   // Fallback initialization without analytics if needed
   auth = getAuth(app);
-  db = getFirestore(app);
+  db = getFirestore(app); 
+  functions = getFunctions(app);
   console.log('Firebase fallback initialization completed');
 }
 
 export { 
   auth, 
   db,
+  functions,
   createUserWithEmailAndPassword, 
   updateProfile, 
   signInWithEmailAndPassword,
@@ -54,5 +60,6 @@ export {
   onSnapshot,
   deleteDoc,
   query,
-  where
+  where,
+  httpsCallable
 };

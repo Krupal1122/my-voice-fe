@@ -5,14 +5,14 @@ import { Button } from './ui/button';
 import { Input } from './ui/input';
 import { Card } from './ui/card';
 import { Alert } from './ui/alert';
-import { auth, createUserWithEmailAndPassword, updateProfile, signInWithEmailAndPassword, db } from '../auth/firebase';
-import { collection, addDoc, getDocs, query, where } from '../auth/firebase';
+import { auth, createUserWithEmailAndPassword, updateProfile, signInWithEmailAndPassword, db, functions, httpsCallable } from '../auth/firebase';
+import { collection, addDoc } from '../auth/firebase';
 
 interface LoginModalProps {
   onClose: () => void;
 }
 
-type ModalView = 'login' | 'signup' | 'forgot' | 'otp-verify' | 'new-password';
+type ModalView = 'login' | 'signup' | 'forgot' | 'otp-verify';
 
 export function LoginModal({ onClose }: LoginModalProps) {
   const [username, setUsername] = useState('');
@@ -28,11 +28,9 @@ export function LoginModal({ onClose }: LoginModalProps) {
   
   // OTP and Password Reset States
   const [otp, setOtp] = useState('');
-  const [generatedOtp, setGeneratedOtp] = useState('');
   const [resetEmail, setResetEmail] = useState('');
   const [newPassword, setNewPassword] = useState('');
   const [confirmNewPassword, setConfirmNewPassword] = useState('');
-  const [otpExpiry, setOtpExpiry] = useState<Date | null>(null);
   const [showNewPassword, setShowNewPassword] = useState(false);
   const [showConfirmNewPassword, setShowConfirmNewPassword] = useState(false);
 
@@ -141,44 +139,22 @@ export function LoginModal({ onClose }: LoginModalProps) {
   };
   
 
-  // Generate 6-digit OTP
-  const generateOTP = (): string => {
-    return Math.floor(100000 + Math.random() * 900000).toString();
-  };
+  // Firebase Cloud Functions for OTP
+  const sendOTPFunction = httpsCallable(functions, 'sendOtp');
+  const verifyOTPFunction = httpsCallable(functions, 'verifyOtpAndReset');
 
-  // Check if email exists in Firebase users collection
-  const checkEmailExists = async (email: string): Promise<boolean> => {
+  // Fallback function for when Cloud Functions are not deployed
+  const isCloudFunctionsDeployed = async (): Promise<boolean> => {
     try {
-      const usersRef = collection(db, "users");
-      const q = query(usersRef, where("email", "==", email));
-      const querySnapshot = await getDocs(q);
-      return !querySnapshot.empty;
-    } catch (error) {
-      console.error('Error checking email:', error);
-      return false;
-    }
-  };
-
-  // Send OTP to email (simulated - in production, use your email service)
-  const sendOTPEmail = async (email: string, otp: string): Promise<boolean> => {
-    try {
-      // Simulate email sending API call
-      console.log(`🔐 OTP for ${email}: ${otp}`);
-      
-      // In production, replace this with actual email service like:
-      // - Firebase Cloud Functions with email service
-      // - SendGrid, Mailgun, or similar email service
-      // - Your backend API that sends emails
-      
-      await new Promise(resolve => setTimeout(resolve, 1500)); // Simulate API call
-      
-      // For demo purposes, show OTP in console and alert
-      alert(`📧 OTP envoyé à ${email}\n\n🔐 Code de vérification: ${otp}\n\n(En production, ce code sera envoyé par email)`);
-      
+      const result = await sendOTPFunction({ email: 'test@example.com' });
+      console.log("Deployment check result:", result);
       return true;
-    } catch (error) {
-      console.error('Error sending OTP:', error);
-      return false;
+    } catch (error: any) {
+      console.error("Deployment check failed:", error);
+      if (error.code === 'functions/not-found' || error.code === 'functions/unavailable') {
+        return false;
+      }
+      return true; // Assume deployed even for internal errors to avoid false negatives
     }
   };
 
@@ -187,45 +163,38 @@ export function LoginModal({ onClose }: LoginModalProps) {
     e.preventDefault();
     setError('');
     setLoading(true);
-
+  
+    console.log("Attempting to send OTP for email:", email);
+  
     // Validate email
     if (!email.trim()) {
       setError('Veuillez entrer votre adresse email');
       setLoading(false);
       return;
     }
-
+  
     const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
     if (!emailRegex.test(email)) {
       setError('Veuillez entrer une adresse email valide');
       setLoading(false);
       return;
     }
-
+  
     try {
-      // Check if email exists in Firebase
-      const emailExists = await checkEmailExists(email);
-      
-      if (!emailExists) {
-        setError('Aucun compte trouvé avec cette adresse email.');
+      // Check if Cloud Functions are deployed
+      const functionsDeployed = await isCloudFunctionsDeployed();
+      if (!functionsDeployed) {
+        setError('⚠️ Les fonctions Cloud ne sont pas encore déployées. Veuillez suivre les instructions de configuration dans SETUP_INSTRUCTIONS.md');
         setLoading(false);
         return;
       }
-
-      // Generate OTP
-      const otp = generateOTP();
-      setGeneratedOtp(otp);
-      setResetEmail(email);
-      
-      // Set OTP expiry (5 minutes from now)
-      const expiry = new Date();
-      expiry.setMinutes(expiry.getMinutes() + 5);
-      setOtpExpiry(expiry);
-
-      // Send OTP to email
-      const emailSent = await sendOTPEmail(email, otp);
-      
-      if (emailSent) {
+  
+      // Call Firebase Cloud Function to send OTP
+      const result = await sendOTPFunction({ email });
+      console.log("sendOtp result:", result);
+  
+      if ((result.data as { success: boolean }).success) {
+        setResetEmail(email);
         setLoading(false);
         setCurrentView('otp-verify');
         setError('');
@@ -233,48 +202,42 @@ export function LoginModal({ onClose }: LoginModalProps) {
         setError('Erreur lors de l\'envoi de l\'email. Veuillez réessayer.');
         setLoading(false);
       }
-    } catch (error) {
-      setError('Une erreur est survenue. Veuillez réessayer.');
+    } catch (error: any) {
       setLoading(false);
       console.error('OTP generation error:', error);
+      console.error('Error details:', error.message, error.code, error.details);
+  
+      // Handle Firebase Function errors
+      switch (error.code) {
+        case 'functions/failed-precondition':
+          setError('Aucun compte trouvé avec cette adresse email.');
+          break;
+        case 'functions/invalid-argument':
+          setError('Adresse email invalide.');
+          break;
+        case 'functions/internal':
+          setError(`Erreur interne du serveur: ${error.message || 'Veuillez réessayer plus tard.'}`);
+          break;
+        default:
+          setError(`Une erreur est survenue lors de l'envoi de l'OTP: ${error.message || 'Veuillez réessayer.'}`);
+      }
     }
   };
-
   // Handle OTP verification
   const handleOTPVerification = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
     setLoading(true);
 
-    // Check if OTP is expired
-    if (otpExpiry && new Date() > otpExpiry) {
-      setError('Le code de vérification a expiré. Veuillez en demander un nouveau.');
+    // Validate OTP and passwords
+    if (otp.length !== 6) {
+      setError('Veuillez entrer un code de vérification à 6 chiffres');
       setLoading(false);
       return;
     }
 
-    // Validate OTP
-    if (otp.trim() !== generatedOtp) {
-      setError('Code de vérification incorrect. Veuillez réessayer.');
-      setLoading(false);
-      return;
-    }
-
-    // OTP is correct, move to new password screen
-    setLoading(false);
-    setCurrentView('new-password');
-    setError('');
-  };
-
-  // Handle new password submission
-  const handleNewPassword = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setError('');
-    setLoading(true);
-
-    // Validate passwords
-    if (!newPassword.trim() || !confirmNewPassword.trim()) {
-      setError('Veuillez remplir tous les champs');
+    if (newPassword.length < 6) {
+      setError('Le nouveau mot de passe doit contenir au moins 6 caractères');
       setLoading(false);
       return;
     }
@@ -285,38 +248,55 @@ export function LoginModal({ onClose }: LoginModalProps) {
       return;
     }
 
-    if (newPassword.length < 6) {
-      setError('Le mot de passe doit contenir au moins 6 caractères');
-      setLoading(false);
-      return;
-    }
-
     try {
-      // Simulate password update in database
-      // In production, update user's password in Firebase/your database
-      await new Promise(resolve => setTimeout(resolve, 1500));
+      // Call Firebase Cloud Function to verify OTP and reset password
+      const result = await verifyOTPFunction({ 
+        email: resetEmail, 
+        otp: otp,
+        newPassword: newPassword 
+      });
       
+      if ((result.data as { success: boolean }).success) {
+        setLoading(false);
+        
+        // Show success message
+        alert(`✅ Mot de passe mis à jour avec succès!\n\nVous pouvez maintenant vous connecter avec votre nouveau mot de passe.`);
+        
+        // Clear all reset states and return to login
+        setOtp('');
+        setResetEmail('');
+        setNewPassword('');
+        setConfirmNewPassword('');
+        setCurrentView('login');
+        setError('');
+      } else {
+        setError('Erreur lors de la vérification du code. Veuillez réessayer.');
+        setLoading(false);
+      }
+    } catch (error: any) {
       setLoading(false);
+      console.error('OTP verification error:', error);
       
-      // Show success message
-      alert(`✅ Mot de passe mis à jour avec succès!\n\nVous pouvez maintenant vous connecter avec votre nouveau mot de passe.`);
-      
-      // Clear all reset states and return to login
-      setOtp('');
-      setGeneratedOtp('');
-      setResetEmail('');
-      setNewPassword('');
-      setConfirmNewPassword('');
-      setOtpExpiry(null);
-      setCurrentView('login');
-      setError('');
-      
-    } catch (error) {
-      setError('Erreur lors de la mise à jour du mot de passe. Veuillez réessayer.');
-      setLoading(false);
-      console.error('Password update error:', error);
+      // Handle Firebase Function errors
+      switch (error.code) {
+        case 'functions/not-found':
+          setError('Code de vérification non trouvé ou expiré.');
+          break;
+        case 'functions/failed-precondition':
+          setError('Ce code a déjà été utilisé.');
+          break;
+        case 'functions/deadline-exceeded':
+          setError('Le code de vérification a expiré. Veuillez en demander un nouveau.');
+          break;
+        case 'functions/permission-denied':
+          setError('Code de vérification incorrect. Veuillez réessayer.');
+          break;
+        default:
+          setError('Une erreur est survenue lors de la vérification. Veuillez réessayer.');
+      }
     }
   };
+
 
   // Resend OTP
   const handleResendOTP = async () => {
@@ -326,26 +306,34 @@ export function LoginModal({ onClose }: LoginModalProps) {
     setError('');
     
     try {
-      const newOtp = generateOTP();
-      setGeneratedOtp(newOtp);
+      // Call Firebase Cloud Function to resend OTP
+      const result = await sendOTPFunction({ email: resetEmail });
       
-      // Set new expiry
-      const expiry = new Date();
-      expiry.setMinutes(expiry.getMinutes() + 5);
-      setOtpExpiry(expiry);
-
-      const emailSent = await sendOTPEmail(resetEmail, newOtp);
-      
-      if (emailSent) {
+      if ((result.data as { success: boolean }).success) {
         setLoading(false);
         alert('📧 Nouveau code de vérification envoyé!');
       } else {
         setError('Erreur lors de l\'envoi. Veuillez réessayer.');
         setLoading(false);
       }
-    } catch (error) {
-      setError('Erreur lors de l\'envoi. Veuillez réessayer.');
+    } catch (error: any) {
       setLoading(false);
+      console.error('Resend OTP error:', error);
+      
+      // Handle Firebase Function errors
+      switch (error.code) {
+        case 'functions/failed-precondition':
+          setError('Aucun compte trouvé avec cette adresse email.');
+          break;
+        case 'functions/invalid-argument':
+          setError('Adresse email invalide.');
+          break;
+        case 'functions/internal':
+          setError('Erreur interne du serveur. Veuillez réessayer plus tard.');
+          break;
+        default:
+          setError('Erreur lors de l\'envoi. Veuillez réessayer.');
+      }
     }
   };
 
@@ -733,7 +721,7 @@ export function LoginModal({ onClose }: LoginModalProps) {
                 transition={{ delay: 0.4 }}
                 className="text-gray-600"
               >
-                Entrez votre email pour recevoir un lien de réinitialisation
+                Entrez votre email pour recevoir un code de vérification
               </motion.p>
             </div>
 
@@ -783,7 +771,7 @@ export function LoginModal({ onClose }: LoginModalProps) {
                   disabled={loading}
                   className="w-full bg-gradient-to-r from-orange-500 to-pink-500 hover:from-orange-600 hover:to-pink-600 text-white py-3 transform hover:scale-105 transition-all duration-200"
                 >
-                  {loading ? 'Envoi...' : 'Envoyer le lien'}
+                  {loading ? 'Envoi...' : 'Envoyer le code'}
                 </Button>
               </motion.div>
             </form>
@@ -889,11 +877,89 @@ export function LoginModal({ onClose }: LoginModalProps) {
               <motion.div
                 initial={{ opacity: 0, y: 20 }}
                 animate={{ opacity: 1, y: 0 }}
+                transition={{ delay: 0.55 }}
+              >
+                <label htmlFor="new-password" className="block text-sm font-medium text-gray-700 mb-2">
+                  Nouveau mot de passe
+                </label>
+                <div className="relative">
+                  <Lock className="absolute left-3 top-1/2 transform -translate-y-1/2 text-orange-500 w-5 h-5" />
+                  <Input
+                    id="new-password"
+                    type={showNewPassword ? 'text' : 'password'}
+                    value={newPassword}
+                    onChange={(e) => setNewPassword(e.target.value)}
+                    placeholder="Votre nouveau mot de passe"
+                    className="pl-10 pr-10 focus:ring-orange-500"
+                    required
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowNewPassword(!showNewPassword)}
+                    className="absolute right-3 top-1/2 transform -translate-y-1/2 text-gray-400 hover:text-gray-600"
+                  >
+                    {showNewPassword ? <EyeOff className="w-5 h-5" /> : <Eye className="w-5 h-5" />}
+                  </button>
+                </div>
+              </motion.div>
+
+              <motion.div
+                initial={{ opacity: 0, y: 20 }}
+                animate={{ opacity: 1, y: 0 }}
                 transition={{ delay: 0.6 }}
+              >
+                <label htmlFor="confirm-new-password" className="block text-sm font-medium text-gray-700 mb-2">
+                  Confirmer le mot de passe
+                </label>
+                <div className="relative">
+                  <Lock className="absolute left-3 top-1/2 transform -translate-y-1/2 text-orange-500 w-5 h-5" />
+                  <Input
+                    id="confirm-new-password"
+                    type={showConfirmNewPassword ? 'text' : 'password'}
+                    value={confirmNewPassword}
+                    onChange={(e) => setConfirmNewPassword(e.target.value)}
+                    placeholder="Confirmez votre nouveau mot de passe"
+                    className="pl-10 pr-10 focus:ring-orange-500"
+                    required
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowConfirmNewPassword(!showConfirmNewPassword)}
+                    className="absolute right-3 top-1/2 transform -translate-y-1/2 text-gray-400 hover:text-gray-600"
+                  >
+                    {showConfirmNewPassword ? <EyeOff className="w-5 h-5" /> : <Eye className="w-5 h-5" />}
+                  </button>
+                </div>
+              </motion.div>
+
+              {/* Password strength indicator */}
+              <motion.div
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                transition={{ delay: 0.65 }}
+                className="bg-gray-50 rounded-lg p-3"
+              >
+                <p className="text-sm font-medium text-gray-700 mb-2">Critères du mot de passe:</p>
+                <div className="space-y-1 text-xs">
+                  <div className={`flex items-center ${newPassword.length >= 6 ? 'text-green-600' : 'text-gray-400'}`}>
+                    <div className={`w-2 h-2 rounded-full mr-2 ${newPassword.length >= 6 ? 'bg-green-500' : 'bg-gray-300'}`}></div>
+                    Au moins 6 caractères
+                  </div>
+                  <div className={`flex items-center ${newPassword !== confirmNewPassword || !confirmNewPassword ? 'text-gray-400' : 'text-green-600'}`}>
+                    <div className={`w-2 h-2 rounded-full mr-2 ${newPassword === confirmNewPassword && confirmNewPassword ? 'bg-green-500' : 'bg-gray-300'}`}></div>
+                    Les mots de passe correspondent
+                  </div>
+                </div>
+              </motion.div>
+
+              <motion.div
+                initial={{ opacity: 0, y: 20 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ delay: 0.7 }}
               >
                 <Button
                   type="submit"
-                  disabled={loading || otp.length !== 6}
+                  disabled={loading || otp.length !== 6 || newPassword.length < 6 || newPassword !== confirmNewPassword}
                   className="w-full bg-gradient-to-r from-orange-500 to-pink-500 hover:from-orange-600 hover:to-pink-600 text-white py-3 transform hover:scale-105 transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed"
                 >
                   {loading ? (
@@ -902,7 +968,10 @@ export function LoginModal({ onClose }: LoginModalProps) {
                       Vérification...
                     </div>
                   ) : (
-                    'Vérifier le code'
+                    <div className="flex items-center justify-center">
+                      <KeyRound className="w-4 h-4 mr-2" />
+                      Vérifier et Réinitialiser
+                    </div>
                   )}
                 </Button>
               </motion.div>
@@ -936,175 +1005,6 @@ export function LoginModal({ onClose }: LoginModalProps) {
           </motion.div>
         );
 
-      case 'new-password':
-        return (
-          <motion.div
-            key="new-password"
-            initial={{ opacity: 0, x: 20 }}
-            animate={{ opacity: 1, x: 0 }}
-            exit={{ opacity: 0, x: -20 }}
-            transition={{ duration: 0.3 }}
-          >
-            <div className="text-center mb-8">
-              <motion.div
-                initial={{ scale: 0 }}
-                animate={{ scale: 1 }}
-                transition={{ delay: 0.2, type: "spring", stiffness: 200 }}
-                className="w-16 h-16 bg-gradient-to-r from-green-500 to-blue-500 rounded-full flex items-center justify-center mx-auto mb-4"
-              >
-                <Lock className="w-8 h-8 text-white" />
-              </motion.div>
-              <motion.h1
-                initial={{ opacity: 0, y: 20 }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={{ delay: 0.3 }}
-                className="text-2xl font-bold bg-gradient-to-r from-green-500 to-blue-500 bg-clip-text text-transparent mb-2"
-              >
-                Nouveau mot de passe
-              </motion.h1>
-              <motion.p
-                initial={{ opacity: 0 }}
-                animate={{ opacity: 1 }}
-                transition={{ delay: 0.4 }}
-                className="text-gray-600"
-              >
-                Créez un nouveau mot de passe sécurisé pour votre compte
-              </motion.p>
-            </div>
-
-            {error && (
-              <motion.div
-                initial={{ opacity: 0, scale: 0.95 }}
-                animate={{ opacity: 1, scale: 1 }}
-                transition={{ duration: 0.2 }}
-                className="mb-6"
-              >
-                <Alert className="border-red-200 bg-red-50 text-red-800">
-                  {error}
-                </Alert>
-              </motion.div>
-            )}
-
-            <form onSubmit={handleNewPassword} className="space-y-6">
-              <motion.div
-                initial={{ opacity: 0, y: 20 }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={{ delay: 0.5 }}
-              >
-                <label htmlFor="new-password" className="block text-sm font-medium text-gray-700 mb-2">
-                  Nouveau mot de passe
-                </label>
-                <div className="relative">
-                  <Lock className="absolute left-3 top-1/2 transform -translate-y-1/2 text-green-500 w-5 h-5" />
-                  <Input
-                    id="new-password"
-                    type={showNewPassword ? 'text' : 'password'}
-                    value={newPassword}
-                    onChange={(e) => setNewPassword(e.target.value)}
-                    placeholder="Votre nouveau mot de passe"
-                    className="pl-10 pr-10 focus:ring-green-500"
-                    required
-                  />
-                  <button
-                    type="button"
-                    onClick={() => setShowNewPassword(!showNewPassword)}
-                    className="absolute right-3 top-1/2 transform -translate-y-1/2 text-gray-400 hover:text-gray-600"
-                  >
-                    {showNewPassword ? <EyeOff className="w-5 h-5" /> : <Eye className="w-5 h-5" />}
-                  </button>
-                </div>
-              </motion.div>
-
-              <motion.div
-                initial={{ opacity: 0, y: 20 }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={{ delay: 0.6 }}
-              >
-                <label htmlFor="confirm-new-password" className="block text-sm font-medium text-gray-700 mb-2">
-                  Confirmer le mot de passe
-                </label>
-                <div className="relative">
-                  <Lock className="absolute left-3 top-1/2 transform -translate-y-1/2 text-green-500 w-5 h-5" />
-                  <Input
-                    id="confirm-new-password"
-                    type={showConfirmNewPassword ? 'text' : 'password'}
-                    value={confirmNewPassword}
-                    onChange={(e) => setConfirmNewPassword(e.target.value)}
-                    placeholder="Confirmez votre nouveau mot de passe"
-                    className="pl-10 pr-10 focus:ring-green-500"
-                    required
-                  />
-                  <button
-                    type="button"
-                    onClick={() => setShowConfirmNewPassword(!showConfirmNewPassword)}
-                    className="absolute right-3 top-1/2 transform -translate-y-1/2 text-gray-400 hover:text-gray-600"
-                  >
-                    {showConfirmNewPassword ? <EyeOff className="w-5 h-5" /> : <Eye className="w-5 h-5" />}
-                  </button>
-                </div>
-              </motion.div>
-
-              {/* Password strength indicator */}
-              <motion.div
-                initial={{ opacity: 0 }}
-                animate={{ opacity: 1 }}
-                transition={{ delay: 0.7 }}
-                className="bg-gray-50 rounded-lg p-3"
-              >
-                <p className="text-sm font-medium text-gray-700 mb-2">Critères du mot de passe:</p>
-                <div className="space-y-1 text-xs">
-                  <div className={`flex items-center ${newPassword.length >= 6 ? 'text-green-600' : 'text-gray-400'}`}>
-                    <div className={`w-2 h-2 rounded-full mr-2 ${newPassword.length >= 6 ? 'bg-green-500' : 'bg-gray-300'}`}></div>
-                    Au moins 6 caractères
-                  </div>
-                  <div className={`flex items-center ${newPassword !== confirmNewPassword || !confirmNewPassword ? 'text-gray-400' : 'text-green-600'}`}>
-                    <div className={`w-2 h-2 rounded-full mr-2 ${newPassword === confirmNewPassword && confirmNewPassword ? 'bg-green-500' : 'bg-gray-300'}`}></div>
-                    Les mots de passe correspondent
-                  </div>
-                </div>
-              </motion.div>
-
-              <motion.div
-                initial={{ opacity: 0, y: 20 }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={{ delay: 0.8 }}
-              >
-                <Button
-                  type="submit"
-                  disabled={loading || newPassword.length < 6 || newPassword !== confirmNewPassword}
-                  className="w-full bg-gradient-to-r from-green-500 to-blue-500 hover:from-green-600 hover:to-blue-600 text-white py-3 transform hover:scale-105 transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed"
-                >
-                  {loading ? (
-                    <div className="flex items-center justify-center">
-                      <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-2"></div>
-                      Mise à jour...
-                    </div>
-                  ) : (
-                    <div className="flex items-center justify-center">
-                      <KeyRound className="w-4 h-4 mr-2" />
-                      Mettre à jour le mot de passe
-                    </div>
-                  )}
-                </Button>
-              </motion.div>
-            </form>
-
-            <motion.div
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              transition={{ delay: 0.9 }}
-              className="mt-6 text-center"
-            >
-              <button
-                onClick={() => setCurrentView('otp-verify')}
-                className="inline-flex items-center text-gray-600 hover:text-gray-700 font-medium"
-              >
-                <ArrowLeft className="w-4 h-4 mr-2" />
-                Retour à la vérification
-              </button>
-            </motion.div>
-          </motion.div>
-        );
     }
   };
 
