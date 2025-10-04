@@ -14,7 +14,7 @@ import { SocialFeed } from './pages/SocialFeed';
 import { SignUp } from './pages/SignUp';
 import { AdminLogin } from './pages/AdminLogin';
 import { AdminPanel } from './pages/AdminPanel';
-  
+   
 type Page = 'home' | 'booste' | 'studies' | 'history' | 'faq' | 'profile' | 'notifications' | 'studies-list' | 'echo-voix' | 'social-feed' | 'signup';
 
 function App() {
