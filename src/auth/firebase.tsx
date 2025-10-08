@@ -1,7 +1,7 @@
 // firebase.js
 import { initializeApp } from "firebase/app";
 import { getAnalytics } from "firebase/analytics";
-import { getAuth, createUserWithEmailAndPassword, updateProfile, signInWithEmailAndPassword, type Auth } from "firebase/auth";
+import { getAuth, createUserWithEmailAndPassword, updateProfile, signInWithEmailAndPassword, signOut, type Auth } from "firebase/auth";
 import { getFirestore, collection, addDoc, setDoc, getDocs, doc, updateDoc, onSnapshot, deleteDoc, query, where } from "firebase/firestore";
 import { getFunctions, httpsCallable, type Functions } from "firebase/functions";
 
@@ -52,6 +52,7 @@ export {
   createUserWithEmailAndPassword, 
   updateProfile, 
   signInWithEmailAndPassword,
+  signOut,
   collection,
   addDoc,
   setDoc,
