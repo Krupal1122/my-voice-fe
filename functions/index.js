@@ -121,16 +121,34 @@
 // });
 
 
-const { onRequest } = require("firebase-functions/v2/https");
+const { onRequest, onCall } = require("firebase-functions/v2/https");
 const { setGlobalOptions } = require("firebase-functions/v2");
 const admin = require("firebase-admin");
 const cors = require("cors");
+const nodemailer = require("nodemailer");
 
 admin.initializeApp();
 setGlobalOptions({ region: "us-central1" });
 
 const corsHandler = cors({ origin: true }); // allows all origins, or specify array
 
+// Configure email transport (Gmail or SMTP)
+const cfg = process.env; // Prefer environment variables on hosting platform
+const EMAIL_USER = cfg.EMAIL_USER || (process.env.EMAIL_USER || null);
+const EMAIL_PASS = cfg.EMAIL_PASS || (process.env.EMAIL_PASS || null);
+
+let transporter = null;
+if (EMAIL_USER && EMAIL_PASS) {
+  transporter = nodemailer.createTransport({
+    service: "gmail",
+    auth: { user: EMAIL_USER, pass: EMAIL_PASS },
+  });
+}
+
+// Helper to generate a 6-digit OTP
+const generateOtp = () => Math.floor(100000 + Math.random() * 900000).toString();
+
+// HTTP endpoint: send OTP to email if user exists in Firebase Auth
 exports.sendOtp = onRequest((req, res) => {
   corsHandler(req, res, async () => {
     if (req.method === "OPTIONS") {
@@ -142,12 +160,112 @@ exports.sendOtp = onRequest((req, res) => {
     }
 
     try {
-      // your OTP logic here
-      res.set("Access-Control-Allow-Origin", "*");
-      res.status(200).send({ message: "OTP sent successfully" });
+      const { email } = req.method === "POST" ? req.body : req.query;
+      if (!email) {
+        res.set("Access-Control-Allow-Origin", "*");
+        return res.status(400).send({ error: "Email is required" });
+      }
+
+      // Verify user exists in Firebase Auth
+      await admin.auth().getUserByEmail(email);
+
+      const otp = generateOtp();
+      const expiration = Date.now() + 5 * 60 * 1000; // 5 minutes
+
+      // Store OTP in Firestore
+      await admin.firestore().collection("otps").add({
+        email,
+        otp,
+        expiration,
+        used: false,
+        createdAt: admin.firestore.FieldValue.serverTimestamp(),
+      });
+
+      // Send email
+      if (transporter) {
+        await transporter.sendMail({
+          from: EMAIL_USER,
+          to: email,
+          subject: "MyVoice974 - Code de vérification",
+          text: `Votre code est : ${otp}. Expire dans 5 minutes.`,
+          html: `<p>Votre code est : <strong>${otp}</strong>. Expire dans 5 minutes.</p>`,
+        });
+        res.set("Access-Control-Allow-Origin", "*");
+        return res.status(200).send({ success: true });
+      } else {
+        // Dev fallback when email creds not configured
+        console.warn("[DEV] Email creds not set. OTP:", otp, "for", email);
+        res.set("Access-Control-Allow-Origin", "*");
+        return res.status(200).send({ success: true, dev: true });
+      }
     } catch (error) {
       res.set("Access-Control-Allow-Origin", "*");
-      res.status(500).send({ error: error.message });
+      if (error.code === "auth/user-not-found") {
+        return res.status(404).send({ error: "Aucun compte trouvé avec cette adresse email." });
+      }
+      if (error.code === "auth/invalid-email") {
+        return res.status(400).send({ error: "Adresse email invalide." });
+      }
+      res.status(500).send({ error: error.message || "Internal error" });
     }
   });
+});
+
+// Callable endpoint: send OTP (for clients using httpsCallable('sendOtp'))
+exports.sendOtpCallable = onCall(async (request) => {
+  const email = request.data?.email;
+  if (!email) {
+    throw new Error("Email is required.");
+  }
+  await admin.auth().getUserByEmail(email);
+  const otp = generateOtp();
+  const expiration = Date.now() + 5 * 60 * 1000;
+  await admin.firestore().collection("otps").add({
+    email,
+    otp,
+    expiration,
+    used: false,
+    createdAt: admin.firestore.FieldValue.serverTimestamp(),
+  });
+  if (transporter) {
+    await transporter.sendMail({
+      from: EMAIL_USER,
+      to: email,
+      subject: "MyVoice974 - Code de vérification",
+      text: `Votre code est : ${otp}. Expire dans 5 minutes.`,
+      html: `<p>Votre code est : <strong>${otp}</strong>. Expire dans 5 minutes.</p>`,
+    });
+    return { success: true };
+  } else {
+    console.warn("[DEV] Email creds not set. OTP:", otp, "for", email);
+    return { success: true, dev: true };
+  }
+});
+
+// Callable endpoint: verify OTP and reset password
+exports.verifyOtpAndReset = onCall(async (request) => {
+  const { email, otp, newPassword } = request.data || {};
+  if (!email || !otp || !newPassword) {
+    throw new Error("Missing required fields.");
+  }
+  // Lookup OTP doc
+  const otpsRef = admin.firestore().collection("otps");
+  const snapshot = await otpsRef
+    .where("email", "==", email)
+    .where("otp", "==", otp)
+    .where("used", "==", false)
+    .get();
+  if (snapshot.empty) {
+    throw new Error("Invalid or expired OTP.");
+  }
+  const otpDoc = snapshot.docs[0];
+  const data = otpDoc.data();
+  if (Date.now() > data.expiration) {
+    throw new Error("OTP has expired.");
+  }
+  // Reset password
+  const user = await admin.auth().getUserByEmail(email);
+  await admin.auth().updateUser(user.uid, { password: newPassword });
+  await otpDoc.ref.update({ used: true });
+  return { success: true };
 });

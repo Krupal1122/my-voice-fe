@@ -5,7 +5,7 @@ echo "🔐 Setting up Firebase OTP Password Reset..."
 echo "📋 Step 1: Login to Firebase"
 echo "Please run: firebase login"
 echo "Then press any key to continue..."
-
+ 
 echo ""
 echo "📋 Step 2: Initialize Firebase Project"
 echo "Please run: firebase init"

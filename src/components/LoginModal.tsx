@@ -5,8 +5,8 @@ import { Button } from './ui/button';
 import { Input } from './ui/input';
 import { Card } from './ui/card';
 import { Alert } from './ui/alert';
-import { auth, createUserWithEmailAndPassword, updateProfile, signInWithEmailAndPassword, db, functions, httpsCallable } from '../auth/firebase';
-import { collection, addDoc, setDoc, doc } from '../auth/firebase';
+import { auth, createUserWithEmailAndPassword, updateProfile, signInWithEmailAndPassword, db } from '../auth/firebase';
+import { setDoc, doc } from '../auth/firebase';
 
 interface LoginModalProps {
   onClose: () => void;
@@ -147,26 +147,8 @@ export function LoginModal({ onClose }: LoginModalProps) {
   };
   
 
-  // Firebase Cloud Functions for OTP
-  const sendOTPFunction = httpsCallable(functions, 'sendOtp');
-  const verifyOTPFunction = httpsCallable(functions, 'verifyOtpAndReset');
 
-  // Fallback function for when Cloud Functions are not deployed
-  const isCloudFunctionsDeployed = async (): Promise<boolean> => {
-    try {
-      const result = await sendOTPFunction({ email: 'test@example.com' });
-      console.log("Deployment check result:", result);
-      return true;
-    } catch (error: any) {
-      console.error("Deployment check failed:", error);
-      if (error.code === 'functions/not-found' || error.code === 'functions/unavailable') {
-        return false;
-      }
-      return true; // Assume deployed even for internal errors to avoid false negatives
-    }
-  };
-
-  // Handle forgot password - send OTP
+  // Handle forgot password - send OTP via backend API
   const handleForgotPassword = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
@@ -189,53 +171,30 @@ export function LoginModal({ onClose }: LoginModalProps) {
     }
   
     try {
-      // Check if Cloud Functions are deployed
-      const functionsDeployed = await isCloudFunctionsDeployed();
-      if (!functionsDeployed) {
-        setError('⚠️ Les fonctions Cloud ne sont pas encore déployées. Veuillez suivre les instructions de configuration dans SETUP_INSTRUCTIONS.md');
-        setLoading(false);
-        return;
-      }
-  
-      // Call Firebase Cloud Function to send OTP
-      const result = await sendOTPFunction({ email });
-      console.log("sendOtp result:", result);
-  
-      if ((result.data as { success: boolean }).success) {
+      // Call backend API to send OTP
+      const response = await fetch('http://localhost:5000/api/otp/request-reset', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ email }),
+      });
+
+      const data = await response.json();
+
+      if (data.ok) {
         setResetEmail(email);
         setLoading(false);
         setCurrentView('otp-verify');
         setError('');
       } else {
-        setError('Erreur lors de l\'envoi de l\'email. Veuillez réessayer.');
+        setError(data.message || 'Erreur lors de l\'envoi du code');
         setLoading(false);
       }
     } catch (error: any) {
       setLoading(false);
       console.error('OTP generation error:', error);
-      console.error('Error details:', error.message, error.code, error.details);
-  
-      // Handle Firebase Function errors
-      if (typeof error === 'object' && error !== null && 'code' in error) {
-        // @ts-ignore
-        switch (error.code) {
-          case 'functions/failed-precondition':
-            setError('Aucun compte trouvé avec cette adresse email.');
-            break;
-          case 'functions/invalid-argument':
-            setError('Adresse email invalide.');
-            break;
-          case 'functions/internal':
-            // @ts-ignore
-            setError(`Erreur interne du serveur: ${error.message || 'Veuillez réessayer plus tard.'}`);
-            break;
-          default:
-            // @ts-ignore
-            setError(`Une erreur est survenue lors de l'envoi de l'OTP: ${error.message || 'Veuillez réessayer.'}`);
-        }
-      } else {
-        setError('Une erreur est survenue lors de l\'envoi de l\'OTP. Veuillez réessayer.');
-      }
+      setError('Erreur de connexion. Veuillez réessayer.');
     }
   };
   // Handle OTP verification
@@ -264,14 +223,22 @@ export function LoginModal({ onClose }: LoginModalProps) {
     }
 
     try {
-      // Call Firebase Cloud Function to verify OTP and reset password
-      const result = await verifyOTPFunction({ 
-        email: resetEmail, 
-        otp: otp,
-        newPassword: newPassword 
+      // Call backend API to verify OTP and reset password
+      const response = await fetch('http://localhost:5000/api/otp/verify-otp', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          email: resetEmail,
+          otp: otp,
+          newPassword: newPassword
+        }),
       });
-      
-      if ((result.data as { success: boolean }).success) {
+
+      const data = await response.json();
+
+      if (data.ok) {
         setLoading(false);
         
         // Show success message
@@ -285,30 +252,13 @@ export function LoginModal({ onClose }: LoginModalProps) {
         setCurrentView('login');
         setError('');
       } else {
-        setError('Erreur lors de la vérification du code. Veuillez réessayer.');
+        setError(data.message || 'Erreur lors de la vérification du code. Veuillez réessayer.');
         setLoading(false);
       }
     } catch (error: any) {
       setLoading(false);
       console.error('OTP verification error:', error);
-      
-      // Handle Firebase Function errors
-      switch (error.code) {
-        case 'functions/not-found':
-          setError('Code de vérification non trouvé ou expiré.');
-          break;
-        case 'functions/failed-precondition':
-          setError('Ce code a déjà été utilisé.');
-          break;
-        case 'functions/deadline-exceeded':
-          setError('Le code de vérification a expiré. Veuillez en demander un nouveau.');
-          break;
-        case 'functions/permission-denied':
-          setError('Code de vérification incorrect. Veuillez réessayer.');
-          break;
-        default:
-          setError('Une erreur est survenue lors de la vérification. Veuillez réessayer.');
-      }
+      setError('Erreur de connexion. Veuillez réessayer.');
     }
   };
 
@@ -321,35 +271,28 @@ export function LoginModal({ onClose }: LoginModalProps) {
     setError('');
     
     try {
-      // Call Firebase Cloud Function to resend OTP
-      const result = await sendOTPFunction({ email: resetEmail });
-      
-      if ((result.data as { success: boolean }).success) {
+      // Call backend API to resend OTP
+      const response = await fetch('http://localhost:5000/api/otp/request-reset', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ email: resetEmail }),
+      });
+
+      const data = await response.json();
+
+      if (data.ok) {
         setLoading(false);  
         alert('📧 Nouveau code de vérification envoyé!');
       } else {
-        setError('Erreur lors de l\'envoi. Veuillez réessayer.');
+        setError(data.message || 'Erreur lors de l\'envoi. Veuillez réessayer.');
         setLoading(false);
       }
-    } catch (error:any) {
-      setError('Erreur lors de l\'envoi. Veuillez réessayer.');
+    } catch (error: any) {
+      setError('Erreur de connexion. Veuillez réessayer.');
       setLoading(false);
       console.error('Resend OTP error:', error);
-      
-      // Handle Firebase Function errors
-      switch (error.code) {
-        case 'functions/failed-precondition':
-          setError('Aucun compte trouvé avec cette adresse email.');
-          break;
-        case 'functions/invalid-argument':
-          setError('Adresse email invalide.');
-          break;
-        case 'functions/internal':
-          setError('Erreur interne du serveur. Veuillez réessayer plus tard.');
-          break;
-        default:
-          setError('Erreur lors de l\'envoi. Veuillez réessayer.');
-      }
     }
   };
 
