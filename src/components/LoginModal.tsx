@@ -55,7 +55,8 @@ export function LoginModal({ onClose }: LoginModalProps) {
 
     try {
       // Sign in with email and password
-      const userCredential = await signInWithEmailAndPassword(auth, email, password);
+      const trimmedEmail = email.trim();
+      const userCredential = await signInWithEmailAndPassword(auth, trimmedEmail, password);
       console.log('User signed in successfully:', userCredential.user);
       setLoading(false);
       onClose();
@@ -70,6 +71,9 @@ export function LoginModal({ onClose }: LoginModalProps) {
             break;
           case 'auth/wrong-password':
             setError('Mot de passe incorrect.');
+            break;
+          case 'auth/invalid-credential':
+            setError('Email ou mot de passe incorrect.');
             break;
           case 'auth/invalid-email':
             setError('Adresse email invalide.');
