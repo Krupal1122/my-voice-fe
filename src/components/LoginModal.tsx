@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { X, Mail, Lock, Eye, EyeOff, UserPlus, ArrowLeft, User, Shield, KeyRound, Timer, RefreshCw } from 'lucide-react';
+import { X, Mail, Lock, Eye, EyeOff, UserPlus, ArrowLeft, User, Shield, KeyRound, Timer, RefreshCw, CheckCircle } from 'lucide-react';
 import { Button } from './ui/button';
 import { Input } from './ui/input';
 import { Card } from './ui/card';
@@ -12,7 +12,7 @@ interface LoginModalProps {
   onClose: () => void;
 }
 
-type ModalView = 'login' | 'signup' | 'forgot' | 'otp-verify';
+type ModalView = 'login' | 'signup' | 'forgot' | 'otp-verify' | 'set-password';
 
 export function LoginModal({ onClose }: LoginModalProps) {
   const [username, setUsername] = useState('');
@@ -33,6 +33,7 @@ export function LoginModal({ onClose }: LoginModalProps) {
   const [confirmNewPassword, setConfirmNewPassword] = useState('');
   const [showNewPassword, setShowNewPassword] = useState(false);
   const [showConfirmNewPassword, setShowConfirmNewPassword] = useState(false);
+  const [otpValidationError, setOtpValidationError] = useState('');
 
   // Prevent background scrolling when modal is open
   useEffect(() => {
@@ -201,19 +202,59 @@ export function LoginModal({ onClose }: LoginModalProps) {
       setError('Erreur de connexion. Veuillez réessayer.');
     }
   };
-  // Handle OTP verification
+  // Handle OTP verification only (step 1)
   const handleOTPVerification = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
+    setOtpValidationError('');
     setLoading(true);
 
-    // Validate OTP and passwords
+    // Validate OTP
     if (otp.length !== 6) {
-      setError('Veuillez entrer un code de vérification à 6 chiffres');
+      setOtpValidationError('Veuillez entrer un code de vérification à 6 chiffres');
       setLoading(false);
       return;
     }
 
+    try {
+      // Call backend API to verify OTP only
+      const response = await fetch('http://localhost:5000/api/otp/verify-otp-only', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          email: resetEmail,
+          otp: otp
+        }),
+      });
+
+      const data = await response.json();
+
+      if (data.ok) {
+        setLoading(false);
+        // Move to password setting step
+        setCurrentView('set-password');
+        setOtpValidationError('');
+      } else {
+        // Inline OTP error
+        setOtpValidationError(data.message || 'Le code OTP est incorrect ou expiré.');
+        setLoading(false);
+      }
+    } catch (error: any) {
+      setLoading(false);
+      console.error('OTP verification error:', error);
+      setOtpValidationError('Erreur de connexion. Veuillez réessayer.');
+    }
+  };
+
+  // Handle password reset (step 2)
+  const handlePasswordReset = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setError('');
+    setLoading(true);
+
+    // Validate passwords
     if (newPassword.length < 6) {
       setError('Le nouveau mot de passe doit contenir au moins 6 caractères');
       setLoading(false);
@@ -227,7 +268,7 @@ export function LoginModal({ onClose }: LoginModalProps) {
     }
 
     try {
-      // Call backend API to verify OTP and reset password
+      // Call backend API to reset password
       const response = await fetch('http://localhost:5000/api/otp/verify-otp', {
         method: 'POST',
         headers: {
@@ -255,13 +296,14 @@ export function LoginModal({ onClose }: LoginModalProps) {
         setConfirmNewPassword('');
         setCurrentView('login');
         setError('');
+        setOtpValidationError('');
       } else {
-        setError(data.message || 'Erreur lors de la vérification du code. Veuillez réessayer.');
+        setError(data.message || 'Erreur lors de la réinitialisation du mot de passe.');
         setLoading(false);
       }
     } catch (error: any) {
       setLoading(false);
-      console.error('OTP verification error:', error);
+      console.error('Password reset error:', error);
       setError('Erreur de connexion. Veuillez réessayer.');
     }
   };
@@ -273,6 +315,7 @@ export function LoginModal({ onClose }: LoginModalProps) {
     
     setLoading(true);
     setError('');
+    setOtpValidationError('');
     
     try {
       // Call backend API to resend OTP
@@ -824,6 +867,7 @@ export function LoginModal({ onClose }: LoginModalProps) {
                     onChange={(e) => {
                       const value = e.target.value.replace(/\D/g, '').slice(0, 6);
                       setOtp(value);
+                      if (otpValidationError) setOtpValidationError('');
                     }}
                     placeholder="123456"
                     className="pl-10 text-center text-lg font-mono tracking-widest focus:ring-orange-500"
@@ -835,35 +879,9 @@ export function LoginModal({ onClose }: LoginModalProps) {
                   <Timer className="w-4 h-4 mr-1" />
                   Le code expire dans 5 minutes
                 </div>
-              </motion.div>
-
-              <motion.div
-                initial={{ opacity: 0, y: 20 }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={{ delay: 0.55 }}
-              >
-                <label htmlFor="new-password" className="block text-sm font-medium text-gray-700 mb-2">
-                  Nouveau mot de passe
-                </label>
-                <div className="relative">
-                  <Lock className="absolute left-3 top-1/2 transform -translate-y-1/2 text-orange-500 w-5 h-5" />
-                  <Input
-                    id="new-password"
-                    type={showNewPassword ? 'text' : 'password'}
-                    value={newPassword}
-                    onChange={(e) => setNewPassword(e.target.value)}
-                    placeholder="Votre nouveau mot de passe"
-                    className="pl-10 pr-10 focus:ring-orange-500"
-                    required
-                  />
-                  <button
-                    type="button"
-                    onClick={() => setShowNewPassword(!showNewPassword)}
-                    className="absolute right-3 top-1/2 transform -translate-y-1/2 text-gray-400 hover:text-gray-600"
-                  >
-                    {showNewPassword ? <EyeOff className="w-5 h-5" /> : <Eye className="w-5 h-5" />}
-                  </button>
-                </div>
+                {otpValidationError && (
+                  <div className="mt-2 text-sm text-red-600 text-center">{otpValidationError}</div>
+                )}
               </motion.div>
 
               <motion.div
@@ -871,58 +889,9 @@ export function LoginModal({ onClose }: LoginModalProps) {
                 animate={{ opacity: 1, y: 0 }}
                 transition={{ delay: 0.6 }}
               >
-                <label htmlFor="confirm-new-password" className="block text-sm font-medium text-gray-700 mb-2">
-                  Confirmer le mot de passe
-                </label>
-                <div className="relative">
-                  <Lock className="absolute left-3 top-1/2 transform -translate-y-1/2 text-orange-500 w-5 h-5" />
-                  <Input
-                    id="confirm-new-password"
-                    type={showConfirmNewPassword ? 'text' : 'password'}
-                    value={confirmNewPassword}
-                    onChange={(e) => setConfirmNewPassword(e.target.value)}
-                    placeholder="Confirmez votre nouveau mot de passe"
-                    className="pl-10 pr-10 focus:ring-orange-500"
-                    required
-                  />
-                  <button
-                    type="button"
-                    onClick={() => setShowConfirmNewPassword(!showConfirmNewPassword)}
-                    className="absolute right-3 top-1/2 transform -translate-y-1/2 text-gray-400 hover:text-gray-600"
-                  >
-                    {showConfirmNewPassword ? <EyeOff className="w-5 h-5" /> : <Eye className="w-5 h-5" />}
-                  </button>
-                </div>
-              </motion.div>
-
-              {/* Password strength indicator */}
-              <motion.div
-                initial={{ opacity: 0 }}
-                animate={{ opacity: 1 }}
-                transition={{ delay: 0.65 }}
-                className="bg-gray-50 rounded-lg p-3"
-              >
-                <p className="text-sm font-medium text-gray-700 mb-2">Critères du mot de passe:</p>
-                <div className="space-y-1 text-xs">
-                  <div className={`flex items-center ${newPassword.length >= 6 ? 'text-green-600' : 'text-gray-400'}`}>
-                    <div className={`w-2 h-2 rounded-full mr-2 ${newPassword.length >= 6 ? 'bg-green-500' : 'bg-gray-300'}`}></div>
-                    Au moins 6 caractères
-                  </div>
-                  <div className={`flex items-center ${newPassword !== confirmNewPassword || !confirmNewPassword ? 'text-gray-400' : 'text-green-600'}`}>
-                    <div className={`w-2 h-2 rounded-full mr-2 ${newPassword === confirmNewPassword && confirmNewPassword ? 'bg-green-500' : 'bg-gray-300'}`}></div>
-                    Les mots de passe correspondent
-                  </div>
-                </div>
-              </motion.div>
-
-              <motion.div
-                initial={{ opacity: 0, y: 20 }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={{ delay: 0.7 }}
-              >
                 <Button
                   type="submit"
-                  disabled={loading || otp.length !== 6 || newPassword.length < 6 || newPassword !== confirmNewPassword}
+                  disabled={loading || otp.length !== 6}
                   className="w-full bg-gradient-to-r from-orange-500 to-pink-500 hover:from-orange-600 hover:to-pink-600 text-white py-3 transform hover:scale-105 transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed"
                 >
                   {loading ? (
@@ -933,7 +902,7 @@ export function LoginModal({ onClose }: LoginModalProps) {
                   ) : (
                     <div className="flex items-center justify-center">
                       <KeyRound className="w-4 h-4 mr-2" />
-                      Vérifier et Réinitialiser
+                      Vérifier le code
                     </div>
                   )}
                 </Button>
@@ -967,6 +936,158 @@ export function LoginModal({ onClose }: LoginModalProps) {
             </motion.div>
           </motion.div>
         );
+
+    case 'set-password':
+      return (
+        <motion.div
+          key="set-password"
+          initial={{ opacity: 0, x: 300 }}
+          animate={{ opacity: 1, x: 0 }}
+          exit={{ opacity: 0, x: -300 }}
+          transition={{ duration: 0.3 }}
+          className="space-y-6"
+        >
+          <div className="text-center">
+            <div className="w-16 h-16 bg-green-100 rounded-full flex items-center justify-center mx-auto mb-4">
+              <CheckCircle className="w-8 h-8 text-green-600" />
+            </div>
+            <h2 className="text-2xl font-bold text-gray-900 mb-2">Code vérifié!</h2>
+            <p className="text-gray-600">
+              Votre code a été vérifié avec succès. Veuillez maintenant définir votre nouveau mot de passe.
+            </p>
+          </div>
+
+          {error && (
+            <motion.div
+              initial={{ opacity: 0, y: -10 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ duration: 0.3 }}
+            >
+              <Alert variant="destructive">
+                {error}
+              </Alert>
+            </motion.div>
+          )}
+
+          <form onSubmit={handlePasswordReset} className="space-y-6">
+            <motion.div
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ delay: 0.5 }}
+            >
+              <label htmlFor="new-password" className="block text-sm font-medium text-gray-700 mb-2">
+                Nouveau mot de passe
+              </label>
+              <div className="relative">
+                <Lock className="absolute left-3 top-1/2 transform -translate-y-1/2 text-orange-500 w-5 h-5" />
+                <Input
+                  id="new-password"
+                  type={showNewPassword ? 'text' : 'password'}
+                  value={newPassword}
+                  onChange={(e) => setNewPassword(e.target.value)}
+                  placeholder="Votre nouveau mot de passe"
+                  className="pl-10 pr-10 focus:ring-orange-500"
+                  required
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowNewPassword(!showNewPassword)}
+                  className="absolute right-3 top-1/2 transform -translate-y-1/2 text-gray-400 hover:text-gray-600"
+                >
+                  {showNewPassword ? <EyeOff className="w-5 h-5" /> : <Eye className="w-5 h-5" />}
+                </button>
+              </div>
+            </motion.div>
+
+            <motion.div
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ delay: 0.6 }}
+            >
+              <label htmlFor="confirm-new-password" className="block text-sm font-medium text-gray-700 mb-2">
+                Confirmer le mot de passe
+              </label>
+              <div className="relative">
+                <Lock className="absolute left-3 top-1/2 transform -translate-y-1/2 text-orange-500 w-5 h-5" />
+                <Input
+                  id="confirm-new-password"
+                  type={showConfirmNewPassword ? 'text' : 'password'}
+                  value={confirmNewPassword}
+                  onChange={(e) => setConfirmNewPassword(e.target.value)}
+                  placeholder="Confirmez votre nouveau mot de passe"
+                  className="pl-10 pr-10 focus:ring-orange-500"
+                  required
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowConfirmNewPassword(!showConfirmNewPassword)}
+                  className="absolute right-3 top-1/2 transform -translate-y-1/2 text-gray-400 hover:text-gray-600"
+                >
+                  {showConfirmNewPassword ? <EyeOff className="w-5 h-5" /> : <Eye className="w-5 h-5" />}
+                </button>
+              </div>
+            </motion.div>
+
+            {/* Password strength indicator */}
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              transition={{ delay: 0.65 }}
+              className="bg-gray-50 rounded-lg p-3"
+            >
+              <p className="text-sm font-medium text-gray-700 mb-2">Critères du mot de passe:</p>
+              <div className="space-y-1 text-xs">
+                <div className={`flex items-center ${newPassword.length >= 6 ? 'text-green-600' : 'text-gray-400'}`}>
+                  <div className={`w-2 h-2 rounded-full mr-2 ${newPassword.length >= 6 ? 'bg-green-500' : 'bg-gray-300'}`}></div>
+                  Au moins 6 caractères
+                </div>
+                <div className={`flex items-center ${newPassword !== confirmNewPassword || !confirmNewPassword ? 'text-gray-400' : 'text-green-600'}`}>
+                  <div className={`w-2 h-2 rounded-full mr-2 ${newPassword === confirmNewPassword && confirmNewPassword ? 'bg-green-500' : 'bg-gray-300'}`}></div>
+                  Les mots de passe correspondent
+                </div>
+              </div>
+            </motion.div>
+
+            <motion.div
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ delay: 0.7 }}
+            >
+              <Button
+                type="submit"
+                disabled={loading || newPassword.length < 6 || newPassword !== confirmNewPassword}
+                className="w-full bg-gradient-to-r from-orange-500 to-pink-500 hover:from-orange-600 hover:to-pink-600 text-white py-3 transform hover:scale-105 transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                {loading ? (
+                  <div className="flex items-center justify-center">
+                    <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-2"></div>
+                    Réinitialisation...
+                  </div>
+                ) : (
+                  <div className="flex items-center justify-center">
+                    <KeyRound className="w-4 h-4 mr-2" />
+                    Réinitialiser le mot de passe
+                  </div>
+                )}
+              </Button>
+            </motion.div>
+          </form>
+
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            transition={{ delay: 0.8 }}
+            className="text-center"
+          >
+            <button
+              onClick={() => setCurrentView('otp-verify')}
+              className="text-orange-600 hover:text-orange-700 text-sm font-medium transition-colors duration-200"
+            >
+              ← Retour à la vérification du code
+            </button>
+          </motion.div>
+        </motion.div>
+      );
 
     }
   };
