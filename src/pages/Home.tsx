@@ -1,28 +1,8 @@
 import { useState, useEffect } from 'react';
 import { ChevronRight, TrendingUp } from 'lucide-react';
-import { BASE_URL } from '../services/api';
+import { studiesAPI, Study } from '../services/api';
 
-interface Study {
-  _id: string;
-  title: string;
-  description: string;
-  status: string;
-  participants: number;
-  targetParticipants?: number;
-  maxParticipants?: number;
-  reward: number;
-  duration: number; // Duration in minutes
-  category: string;
-  createdAt: string;
-  deadline?: string;
-  endDate?: string;
-  startDate?: string;
-  image?: string;
-  requirements?: string;
-  instructions?: string;
-  tags?: string[];
-  isActive?: boolean;
-}
+// Study interface is now imported from api.ts
 
 interface HomeProps {
   onNavigateToStudies: () => void;
@@ -103,14 +83,8 @@ export function Home({ onNavigateToStudies, onNavigateToEcho }: HomeProps) {
   useEffect(() => {
     const fetchStudies = async () => {
       try {
-        const response = await fetch(`${BASE_URL}/api/studies`);
-        if (response.ok) {
-          const data = await response.json();
-          setActiveStudies(data.studies || defaultStudies);
-        } else {
-          console.error('Failed to fetch studies, using defaults');
-          setActiveStudies(defaultStudies);
-        }
+        const response = await studiesAPI.getAllStudies();
+        setActiveStudies(response.data.studies || defaultStudies);
       } catch (error) {
         console.error('Error fetching studies:', error);
         setActiveStudies(defaultStudies);
