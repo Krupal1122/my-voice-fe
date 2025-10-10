@@ -6,7 +6,7 @@ import { Input } from './ui/input';
 import { Card } from './ui/card';
 import { Alert } from './ui/alert';
 import { auth, createUserWithEmailAndPassword, updateProfile, signInWithEmailAndPassword, db } from '../auth/firebase';
-import { setDoc, doc } from '../auth/firebase';
+import { setDoc, doc, query, where, getDocs, collection } from '../auth/firebase';
 
 interface LoginModalProps {
   onClose: () => void;
@@ -153,6 +153,21 @@ export function LoginModal({ onClose }: LoginModalProps) {
   
 
 
+  // Check if email exists in Firebase
+  const checkEmailExists = async (email: string): Promise<boolean> => {
+    try {
+      // Query Firestore to check if user exists with this email
+      const usersRef = collection(db, 'users');
+      const q = query(usersRef, where('email', '==', email));
+      const querySnapshot = await getDocs(q);
+      
+      return !querySnapshot.empty;
+    } catch (error) {
+      console.error('Error checking email existence:', error);
+      return false;
+    }
+  };
+
   // Handle forgot password - send OTP via backend API
   const handleForgotPassword = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -171,6 +186,14 @@ export function LoginModal({ onClose }: LoginModalProps) {
     const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
     if (!emailRegex.test(email)) {
       setError('Veuillez entrer une adresse email valide');
+      setLoading(false);
+      return;
+    }
+
+    // Check if email exists in Firebase
+    const emailExists = await checkEmailExists(email);
+    if (!emailExists) {
+      setError('Aucun compte trouvé avec cette adresse email. Veuillez vérifier votre email ou créer un nouveau compte.');
       setLoading(false);
       return;
     }
@@ -316,6 +339,14 @@ export function LoginModal({ onClose }: LoginModalProps) {
     setLoading(true);
     setError('');
     setOtpValidationError('');
+    
+    // Check if email still exists in Firebase before resending
+    const emailExists = await checkEmailExists(resetEmail);
+    if (!emailExists) {
+      setError('Aucun compte trouvé avec cette adresse email. Veuillez vérifier votre email ou créer un nouveau compte.');
+      setLoading(false);
+      return;
+    }
     
     try {
       // Call backend API to resend OTP
