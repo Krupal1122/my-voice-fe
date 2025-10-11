@@ -1,0 +1,67 @@
+{
+  "name": "My Voice - Panel de Sondage",
+  "short_name": "My Voice",
+  "description": "Application de Panel de Sondage Française",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#ffffff",
+  "theme_color": "#3b82f6",
+  "orientation": "portrait",
+  "scope": "/",
+  "lang": "fr",
+  "categories": ["productivity", "utilities"],
+  "icons": [
+    {
+      "src": "/MYVOICE_974.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "/MYVOICE_974.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ],
+  "screenshots": [
+    {
+      "src": "/image 6.png",
+      "sizes": "1280x720",
+      "type": "image/png",
+      "form_factor": "wide"
+    },
+    {
+      "src": "/image 7.png",
+      "sizes": "750x1334",
+      "type": "image/png",
+      "form_factor": "narrow"
+    }
+  ],
+  "shortcuts": [
+    {
+      "name": "Études",
+      "short_name": "Études",
+      "description": "Accéder aux études disponibles",
+      "url": "/studies",
+      "icons": [
+        {
+          "src": "/MYVOICE_974.png",
+          "sizes": "96x96"
+        }
+      ]
+    },
+    {
+      "name": "Profil",
+      "short_name": "Profil",
+      "description": "Voir votre profil",
+      "url": "/profile",
+      "icons": [
+        {
+          "src": "/MYVOICE_974.png",
+          "sizes": "96x96"
+        }
+      ]
+    }
+  ]
+}

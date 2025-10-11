@@ -1,6 +1,9 @@
 import  { useState, useEffect } from 'react';
 import { Header } from './components/Header';
 import { BottomNavigation } from './components/BottomNavigation';
+import PWAInstaller from './components/PWAInstaller';
+import OfflinePage from './components/OfflinePage';
+import { useNetworkStatus } from './hooks/useNetworkStatus';
 import { Home } from './pages/Home';
 import { Studies } from './pages/Studies';
 import { History } from './pages/History';
@@ -22,6 +25,7 @@ function App() {
   const [searchTerm, setSearchTerm] = useState('');
   const [isAdminMode, setIsAdminMode] = useState(false);
   const [isAdminLoggedIn, setIsAdminLoggedIn] = useState(false);
+  const { isOffline } = useNetworkStatus();
 
   // Check for admin session on component mount
   useEffect(() => {
@@ -63,6 +67,11 @@ function App() {
     // Redirect to home page
     window.history.pushState({}, '', '/');
   };
+
+  // If offline, show offline page
+  if (isOffline) {
+    return <OfflinePage />;
+  }
 
   // If in admin mode, render admin components
   if (isAdminMode) {
@@ -132,6 +141,7 @@ function App() {
         currentPage={currentPage}
         onPageChange={(page) => setCurrentPage(page as Page)}
       />
+      <PWAInstaller />
     </div>
   );
 }
